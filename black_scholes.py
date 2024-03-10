@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 
-class Black_scholes2():
+class Black_scholes():
     """
     Black_scholes model class.
     Inputs:
@@ -19,24 +19,32 @@ class Black_scholes2():
         -   auto: Compute euler,exact method and values. True as default
     """
 
-    def __init__(self, S,r,vol, T, K):
+    def __init__(self, S,r,vol, T,N, K,auto = True):
 
         self.S = S
         self.r = r
         self.vol = vol
         self.T = T
         self.N = N
+        self.dt = T/N
         self.K = K
         self.taos = self.T - np.arange(0,self.N+1)*self.dt
 
+        self.delta = None
+        self.deltas = None
+        self.cash = None
 
-    def exact_method(self,N):
+        if auto == True:
+            self.option_values(mode = "euler")
+            self.option_values(mode = "exact")
+            self.euler_hedging()
+
+
+    def exact_method(self):
         """
         Stocks price of each interval N in period T 
         using the exact solution of Black scholes
         """
-        self.dt = self.T/N
-        self.N = N
         ex_St= np.zeros(self.N+1)
         ex_St[0] = self.S
 
@@ -53,13 +61,12 @@ class Black_scholes2():
         self.ex_St = ex_St
 
 
-    def euler_method(self,N):
+    def euler_method(self):
         """
         Stocks price of each interval N in period T 
         using the euler approximation solution of Black scholes
         """
-        self.dt = self.T/N
-        self.N = N
+
         eu_St = np.zeros(self.N+1)
         eu_St[0] = self.S
 
@@ -72,87 +79,127 @@ class Black_scholes2():
             Z_m = np.random.normal(0,1,1)
             eu_St[m] = eu_St[m-1] + eu_St[m-1]*pre_1+ eu_St[m-1]*pre_2*Z_m
         self.eu_St = eu_St
-
-    def mc_euler_european(self,n_samples):
+    
+    def euler_hedging(self, vol_hedge = None, do_cash = False):
         """
-        Does MonteCarlo method for H with euler method
+        Hedging simulation of each interval N in period T 
+        using the euler approximation solution of Black scholes
         Inputs:
-            - n_samples: Number of samples to draw
+            - vol_hedge: Volatility for hedge parameter computations, stock volatility as default
+            - do_cash: True if simulate short position of option call, False as default.
         """
 
-
-        mc_ST = np.zeros(n_samples)
-        mc_Hi = np.zeros(n_samples)
-
-        #### Begin Pre-computations        
-        pre_1 = np.exp((self.r - 0.5*self.vol**2)*self.T)
-        pre_2 = self.vol*np.sqrt(self.T)
-        #### End Pre-computations
-
-        for m in range(0,n_samples):
-            Z = np.random.normal(0,1,1)
-            mc_ST[m] = self.S*pre_1*np.exp(pre_2*Z)
-            mc_Hi[m] = max(mc_ST[m]-self.K,0)
+        if not hasattr(self,'eu_St'):
+            self.euler_method()
+        if vol_hedge == None:
+            vol_hedge = self.vol
         
-        self.mc_Hi = mc_Hi
-        self.mc_ST  = mc_ST
-        self.mc_H = np.exp(-self.r*self.T)*(np.sum(mc_Hi)/n_samples)
+        ## Delta parameters
+        d1s = (np.log(self.eu_St/self.K) + (self.r + 0.5*(vol_hedge**2)*self.taos))/(vol_hedge*np.sqrt(self.taos))
+        self.deltas = norm.cdf(d1s)
 
-def milstein_scheme(self, iota,k,sigma,p, dt, n_steps = 251, mode = "arithmetic"):
-    """
-    Does listen scheme for Heston model:
-    Inputs:
-        -    Iota: long-term variance
-        -    k: Reversion rate
-        -    sigma: vol of vol
-        -    p: correlation
-        -    dt: time step
-        -    mode: If using arithmetic or geometric
-    """
-    self.mi_St = np.zeros(n_steps)
-    self.mi_Vt = np.zeros(n_steps)
-    self.mi_Vt[0] = 0
-    self.mi_St[0] = self.S
+        ## Cash and initial call price
+        if do_cash == True:
+            self.cash_hedging(vol_hedge,d1s)
 
-    ### Stock simulation
-    
-    for m in range(1,n_steps+1):
 
-        Z_1 = np.random.normal(0,1,1)
-        Z_2 = np.random.normal(0,1,1)
 
-        Zv = Z_1
-        Zs = p*Z_1 + np.sqrt(1-p**2)*Z_2
-        self.mi_Vt[m] = self.mi_Vt[m-1] + k*(iota - self.mi_Vt[m-1])*dt +sigma*np.sqrt(self.mi_Vt[m-1]*dt)*Zv + (1/4)*(sigma**2)*dt*(Zv-1)
+    def cash_hedging(self,vol_hedge,d1s):
+        """
+        Simulates a how does the account balance of an investor changes.
+        Need to change to vectorized way if is necessary
+        """
+        f = self.eu_St[0]*self.deltas[0] - np.exp(-self.r*self.T)*self.K*norm.cdf(d1s[0] -vol_hedge*np.sqrt(self.T))
         
-        if mode == "arithmetic":
-            self.mi_St[m] = self.mi_St[m-1] + self.r*self.mi_St[m-1]*dt + np.sqrt(self.mi_Vt[m-1]*dt)*self.mi_St[m-1]*Zs + 1/2 * self.mi_Vt[m-1]*self.mi_St[m-1]*dt*(Zs**2 - 1)
-        elif mode == "geometric":
-            self.mi_St[m] = self.mi_St[m-1]*np.exp((r-1/2 *self.mi_Vt[m-1])*dt + np.sqrt(self.mi_Vt[m-1]*dt)*Z_s)
+        self.cash_weekly = np.zeros(int((self.N +1)/7))
+        self.cash_weekly[0] = f - self.deltas[0]*self.eu_St[0]
+        
+        self.cash_daily= np.zeros(int(self.N+1))
+        self.cash_daily[0] = f - self.deltas[0]*self.eu_St[0]
 
-def option_value_milstein_scheme(self,iota,k,sigma,p, dt, n_steps = 251, mode = "arithmetic"):
+        ### Hedging adjustment, need to be vectorized
+        for m in range(1,self.eu_St.shape[0]-1):
+            self.cash_daily[m] = self.cash_daily[m-1]*np.exp(self.r*self.dt) - (self.deltas[m]-self.deltas[m-1])*self.eu_St[m]
+
+        for m in range(1,51):
+            self.cash_weekly[m] = self.cash_weekly[(m-1)]*np.exp(self.r*self.dt) - (self.deltas[m*7]-self.deltas[(m-1)*7])*self.eu_St[m*7]
+        #### Selling the stock at strike price at maturity
+        if (self.eu_St[-1] - self.K) >0:
+            self.cash_weekly[-1] = self.cash_weekly[-2]*np.exp(self.r*self.dt) + self.K - (1-self.deltas[-2])*self.eu_St[-1]
+            self.cash_daily[-1] = self.cash_daily[-2]*np.exp(self.r*self.dt) + self.K - (1-self.deltas[-2])*self.eu_St[-1]
+        else:
+            self.cash_weekly[-1] = self.cash_weekly[-2]*np.exp(self.r*self.dt) + (self.deltas[-2])*self.eu_St[-1]
+            self.cash_daily[-1] = self.cash_daily[-2]*np.exp(self.r*self.dt) + (self.deltas[-2])*self.eu_St[-1]
+
+
+    def option_values(self,mode = "exact"):
+        """
+        Expected value of an European price call option written on an asset in the Black-scholes model
+        And hedge parameter
     
-    """Still need to implement
-    """
+        Inputs:
+            - mode = If use the exact or euler method of stock price
+        """
+        
+        if mode == "euler":
+            if not hasattr(self,'eu_St'):
+                self.euler_method()
+            self.eu_Vt = self.option_price(mode)
+
+        elif mode == "exact":
+            if not hasattr(self, mode):
+                self.exact_method()
+
+            self.ex_Vt = self.option_price(mode)
+
+            ## Hedge parameter for part II question 4
+            self.delta = norm.cdf((np.log(self.ex_St[0]/self.K) +  (self.r + 0.5*(self.vol**2))*(self.T))/(self.vol*np.sqrt(self.T)))
+
     
+    def option_price(self,mode, vol_hedge = None):
+        """
+        Computes the expected price at time t of an european call option
+        Inputs:
+            - m: Position in time
+            - St: Stock value
+            . vol_hedge: Volatility of hedge, set as stock volatility as default
+        """
+        if mode == "exact":
+            St = self.ex_St
+        if mode == "euler":
+            St = self.eu_St
+        if vol_hedge == None:
+            vol_hedge = self.vol
 
+        d1s = (np.log(St/self.K) + (self.r + 0.5*(vol_hedge**2)*self.taos))/(self.vol*np.sqrt(self.taos))
+        d2s = d1s - vol_hedge*np.sqrt(self.taos)
+        Vt = -St*norm.cdf(-d1s) + np.exp(-self.r*self.taos)*self.K*norm.cdf(-d2s)
 
-
+        return Vt
      
 
 
 if __name__ == "__main__":
-    T = 1
-    S = 100
-    K = 99
-    r = 0.06
     vol = 0.2
-    N = 100
-    black_scholes = Black_scholes(S,r,vol,T,N, K, auto = False)
-    H = []
-    n_samples_list = [10,20,50,100,200,300]
-    for n_samples in n_samples_list:
-        black_scholes.mc_european(n_samples) 
-        H += [black_scholes.mc_H]
-    plt.plot(H)
+    S = 100
+    T = 1.
+    N = 364
+    r = 0.06
+    K = 99
+    black_scholes_d = Black_scholes(S,r,vol,T,N,K, auto = True)
+    black_scholes_d.euler_hedging(do_cash = True)
+    fig,axs = plt.subplots(2)
+
+    axs[0].plot(np.linspace(1,365, num = 365),black_scholes_d.eu_St, label = "Stock price")
+    axs[0].set_xlabel("Time")
+    axs[0].set_ylabel("Stock price")
+    axs[0].legend()
+
+    axs[1].plot(np.linspace(1,365, num = 52),black_scholes_d.cash_weekly, label = "Weekly adjustment")
+    axs[1].plot(np.linspace(1,365, num = 365),black_scholes_d.cash_daily, label = "Daily adjustment")
+    axs[1].set_xlabel("Time")
+    axs[1].set_ylabel("Portfolio value")
+    axs[1].legend()
     plt.show()
+
+
