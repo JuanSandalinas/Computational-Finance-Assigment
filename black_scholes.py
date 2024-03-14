@@ -153,7 +153,7 @@ class Black_scholes():
             self.ex_Vt = self.option_price(mode)
 
             ## Hedge parameter for part II question 4
-            self.delta = norm.cdf((np.log(self.ex_St[0]/self.K) +  (self.r + 0.5*(self.vol**2))*(self.T))/(self.vol*np.sqrt(self.T)))
+            self.delta += norm.cdf((np.log(self.ex_St[0]/self.K) +  (self.r + 0.5*(self.vol**2))*(self.T))/(self.vol*np.sqrt(self.T)))
 
     
     def option_price(self,mode, vol_hedge = None):
